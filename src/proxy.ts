@@ -249,13 +249,10 @@ export function runProxy(server: string, cmd: string, args: string[]): void {
   // that mentions tools/call, refuse it.
   lineReader(process.stdin, onClientMessage,
     (raw) => {
-      if (raw.includes("tools/call")) {
-        log("refused an unparseable message that looks like a tools/call");
-        try { append({ type: "sink_blocked", server, data: { reason: "unparseable", bytes: raw.length } }); } catch {}
-        return;
-      }
-      log(`passing through unparseable client line (${raw.length} bytes)`);
-      child.stdin.write(raw + "\n");
+      // Never forward malformed JSON-RPC: string matching for "tools/call" can be evaded
+      // with JSON escapes, whitespace, or alternate encodings.
+      log(`refused malformed client JSON-RPC (${Buffer.byteLength(raw, "utf8")} bytes)`);
+      try { append({ type: "sink_blocked", server, data: { reason: "unparseable", bytes: Buffer.byteLength(raw, "utf8") } }); } catch {}
     },
     (m, err) => {
       if (m?.method === "tools/call") {
@@ -290,6 +287,9 @@ function lineReader(
       const line = buf.slice(0, i).replace(/\r$/, "");
       buf = buf.slice(i + 1);
       if (!line.trim()) continue;
+      // Check each complete line, not only the trailing buffer. A huge line followed
+      // by a newline in the same chunk previously bypassed the overflow guard.
+      if (Buffer.byteLength(line, "utf8") > MAX_LINE_BYTES) { onOverflow(); return; }
       let parsed: unknown;
       try { parsed = JSON.parse(line); } catch { passthrough(line); continue; }
       for (const m of (Array.isArray(parsed) ? parsed : [parsed]) as Json[]) {
@@ -299,6 +299,6 @@ function lineReader(
         }
       }
     }
-    if (buf.length > MAX_LINE_BYTES) { buf = ""; onOverflow(); }
+    if (Buffer.byteLength(buf, "utf8") > MAX_LINE_BYTES) { buf = ""; onOverflow(); }
   });
 }
