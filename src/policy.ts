@@ -14,7 +14,7 @@ export interface Policy {
   onExposedToInjection: Action;
   /** How long (minutes) untrusted content stays "live" in the session for taint purposes. */
   windowMinutes: number;
-  /** Indicators you trust even if they also appear in untrusted content, e.g. "email:me@mycompany.com". */
+  /** Indicators you trust even if they also appear in untrusted content, e.g. "host:mycompany.com" (also covers subdomains) or "wallet:0x...". */
   allowIndicators: string[];
   /** What to do when an MCP server silently changes a tool's description or schema (rug pull). */
   onToolDrift: "block" | "log";

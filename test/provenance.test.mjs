@@ -52,7 +52,7 @@ test("taint: copied long phrases are caught even without indicators", () => {
 test("clean calls pass; allowIndicators suppresses known-good values", () => {
   ingest("Reach our team at help@vendor.io");
   assert.equal(decide(DEFAULT_POLICY, "mail", "send_email", { to: "me@mine.dev", body: "hi" }).action, "allow");
-  const p = { ...DEFAULT_POLICY, allowIndicators: ["email:help@vendor.io"] };
+  const p = { ...DEFAULT_POLICY, allowIndicators: ["host:vendor.io"] };
   assert.equal(decide(p, "mail", "send_email", { to: "help@vendor.io", body: "hi" }).action, "allow");
 });
 

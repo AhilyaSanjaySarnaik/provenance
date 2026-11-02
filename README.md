@@ -53,7 +53,8 @@ Wrap every server you use. They share one ledger, so taint is tracked across all
 
 ```bash
 npx agent-provenance log       # what your agents read, did, and were stopped from doing
-npx agent-provenance verify    # prove the log hasn't been edited
+npx agent-provenance verify    # check signatures and the hash chain
+npx agent-provenance checkpoint >> ~/Dropbox/provenance-anchors.txt   # anchor the head somewhere else
 ```
 
 ## How it works
@@ -72,13 +73,13 @@ npx agent-provenance verify    # prove the log hasn't been edited
 
 | Feature | What it does |
 |---|---|
-| **Cross-server taint tracking** | Fingerprints every untrusted tool result. Sink calls whose arguments contain those indicators or copied phrases are blocked, with the evidence. |
+| **Cross-server taint tracking** | Fingerprints every untrusted tool result. Sink calls whose arguments contain those indicators or copied phrases are blocked, with the evidence. Both sides are normalised: Unicode/CJK text, punycode and Cyrillic/Greek homoglyph domains, and one decoding pass over base64, hex and percent-encoding. |
 | **Injection exposure hold** | If untrusted content contained injection patterns (override instructions, concealment, credential requests, invisible Unicode, tag smuggling), side effects wait for a human. |
 | **Single-use approvals** | `provenance approve <id>` lets exactly that call (same tool, same args) through once. |
-| **Rug-pull detection** | Tool definitions are pinned on first sight. If a server silently changes a tool's description or schema, the tool is withheld until you `repin`. |
-| **Signed audit trail** | Ed25519-signed, hash-chained JSONL. `verify` detects any edit, deletion or reordering. |
+| **Rug-pull detection** | Tool definitions *and the set of tool names* are pinned on first sight. A changed description/schema, or a new tool appearing later, is withheld until you `repin`. |
+| **Signed audit trail** | Ed25519-signed, hash-chained JSONL that survives crashes mid-write. `verify` detects edits, deletions and reordering by anything without your signing key; `checkpoint` + `verify --checkpoint` also catch a full rewrite by something that has it (see threat model). |
 | **Config scanner** | `scan` audits Claude Desktop, Claude Code, Cursor, Windsurf, VS Code, Gemini CLI and Codex configs. |
-| **Fails closed** | If the guard itself errors on a tool call, the call is refused, not passed through. |
+| **Fails closed** | Tool calls are checked whether sent as requests or notifications. If the guard errors, or can't parse a line that looks like a tool call, the call is refused. If a source result can't be scanned, it's recorded as unscanned and side effects are held. |
 
 ## Policy
 
@@ -92,7 +93,7 @@ npx agent-provenance verify    # prove the log hasn't been edited
   "onExposedToInjection": "block",
   "onToolDrift": "block",
   "windowMinutes": 60,
-  "allowIndicators": ["email:me@mycompany.com"],
+  "allowIndicators": ["host:mycompany.com"],
   "servers": { "github": { "sinks": ["create_issue", "merge_pull_request"] } }
 }
 ```
@@ -101,7 +102,8 @@ npx agent-provenance verify    # prove the log hasn't been edited
 
 provenance targets the most common real-world agent attack: **indirect prompt injection that turns into a tool call**. It is a strong tripwire, not a proof of safety.
 
-- Taint matching is lexical. An attacker who gets the model to *paraphrase or encode* the data defeats indicator matching. The injection-exposure hold is the backstop for that, which is why it defaults to `block`.
+- Taint matching is lexical. It handles one layer of base64/hex/percent-encoding and homoglyph domains, but an attacker who gets the model to *paraphrase*, translate, split, or multiply-encode the data defeats it. The injection-exposure hold is the backstop for that, which is why it defaults to `block`.
+- **The audit log's tamper-evidence has a boundary.** The signing key lives in `~/.provenance` (mode 0600) next to the ledger. `verify` alone proves the log wasn't altered by anything that *can't* read that key: the agent's tools, a sandboxed process, a corrupted write. A process running as your user *can* read the key, delete the ledger and forge a fresh, internally valid one. To detect that, periodically run `provenance checkpoint` and store the output somewhere that process can't write (a git commit, a ticket, a remote log). `verify --checkpoint <c>` then fails on any rewritten history. Moving the key to the OS keychain / a hardware key is on the roadmap.
 - It sees tool traffic, not your chat. It can't tell that *you* typed an email address that also appears on a page; use `allowIndicators` or approve once.
 - It guards stdio MCP servers today. Remote (HTTP) MCP support and a hosted policy/audit plane are on the roadmap.
 - Tool classification is by name pattern. Review `sources`/`sinks` for your servers.
@@ -112,6 +114,7 @@ Found a bypass? Please open an issue. Bypasses become test cases.
 
 - [ ] Streamable HTTP / remote MCP proxying
 - [ ] **Intent receipts v1**: a signed "user X authorised goal Y" token that downstream APIs and agents can verify ([spec draft](docs/INTENT-RECEIPTS.md))
+- [ ] Signing key in OS keychain / hardware key; automatic remote checkpointing
 - [ ] Local dashboard (`provenance ui`)
 - [ ] Semantic taint (embedding similarity) for paraphrased exfiltration
 - [ ] Team mode: central policy, fleet-wide audit, SIEM export
@@ -120,7 +123,7 @@ Found a bypass? Please open an issue. Bypasses become test cases.
 
 ```bash
 npm install
-npm test        # 11 tests incl. end-to-end proxy and tamper detection
+npm test        # 28 tests incl. end-to-end proxy, concurrency, crash recovery and tamper detection
 npm run demo    # the attack above, live
 ```
 

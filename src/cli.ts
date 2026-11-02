@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { append, readAll, readSince, verifyLedger, publicKeyPem } from "./ledger.js";
+import { append, readAll, readSince, verifyLedger, publicKeyPem, withLock } from "./ledger.js";
 import { runProxy } from "./proxy.js";
 import { scan, type Severity } from "./scan.js";
 import { writeDefaultPolicy } from "./policy.js";
@@ -17,7 +17,8 @@ ${bold("Usage")}
   provenance wrap --name <n> -- <cmd...>   Run an MCP server behind the provenance guard
   provenance log [-n 20] [--json]          Show recent agent actions, blocks and untrusted inputs
   provenance approve <id>                  Allow a blocked call (same tool + same args) to run once more
-  provenance verify                        Check the audit log's hash chain and signatures
+  provenance verify [--checkpoint <c>]     Check the audit log's hash chain, signatures, and an anchored checkpoint
+  provenance checkpoint                    Print <count>:<head-hash> to store somewhere the agent host can't write
   provenance repin <server>                Accept changed tool definitions for a server
   provenance init                          Write an editable policy to ~/.provenance/policy.json
   provenance pubkey                        Print the public key that verifies your receipts
@@ -78,7 +79,7 @@ function cmdLog() {
     const head = `${dim(fmtTime(e.ts))} ${dim(e.id)} ${e.server}${e.tool ? "/" + e.tool : ""}`;
     switch (e.type) {
       case "sink_blocked": {
-        console.log(`${red("BLOCK ")} ${head}  ${yellow(String(e.data.reason))}`);
+        console.log(`${red("BLOCK ")} ${head}  ${yellow(String(e.data.reason))}${e.data.notification ? dim(" (notification)") : ""}`);
         for (const m of (e.data.matches as any[]) ?? []) {
           console.log(dim(`         carried ${[...m.indicators, ...(m.copiedPhrases ? [`${m.copiedPhrases} phrases`] : [])].join(", ")} from ${m.sourceServer}/${m.sourceTool}`));
         }
@@ -92,7 +93,7 @@ function cmdLog() {
         break;
       }
       case "approval": console.log(`${cyan("APPRV ")} ${head}  approved ${e.data.blockId}`); break;
-      case "tool_drift": console.log(`${red("DRIFT ")} ${head}  tool definition changed`); break;
+      case "tool_drift": console.log(`${red("DRIFT ")} ${head}  tool ${e.data.kind === "added" ? "appeared after pinning" : "definition changed"}`); break;
       case "session_start": console.log(`${dim("START  " + fmtTime(e.ts) + " " + e.server + "  " + e.data.cmd)}`); break;
     }
   }
@@ -107,18 +108,32 @@ function cmdApprove() {
 }
 
 function cmdVerify() {
+  const r = verifyLedger(undefined, arg("--checkpoint"));
+  for (const w of r.warnings) console.log(yellow(`warning: ${w}`));
+  if (r.ok) {
+    console.log(green(`OK: ${r.count} entries, hash chain intact, all signatures valid${arg("--checkpoint") ? ", matches checkpoint" : ""}.`));
+    if (!arg("--checkpoint")) console.log(dim("Note: this proves integrity against anyone without your signing key. Anchor `provenance checkpoint` output elsewhere to detect full rewrites."));
+  } else { console.log(red(`TAMPERED${r.at !== undefined ? ` at entry ${r.at}` : ""}: ${r.error}`)); process.exitCode = 1; }
+}
+
+function cmdCheckpoint() {
   const r = verifyLedger();
-  if (r.ok) console.log(green(`OK: ${r.count} entries, hash chain intact, all signatures valid.`));
-  else { console.log(red(`TAMPERED at entry ${r.at}: ${r.error}`)); process.exitCode = 1; }
+  if (!r.ok) { console.log(red(`Ledger does not verify (${r.error}); refusing to checkpoint.`)); process.exitCode = 1; return; }
+  if (!r.count) { console.log("Ledger is empty."); return; }
+  // Print just the token so it can be piped somewhere the agent host can't write (a git repo, a ticket, a remote log).
+  console.log(`${r.count}:${r.head}`);
 }
 
 function cmdRepin() {
   const server = process.argv[3];
-  if (!existsSync(paths.pins)) return console.log("Nothing pinned yet.");
-  const pins = JSON.parse(readFileSync(paths.pins, "utf8"));
-  delete pins[server];
-  writeFileSync(paths.pins, JSON.stringify(pins, null, 2));
-  console.log(`Cleared pins for ${server}; current tool definitions will be pinned on next start.`);
+  if (!server) { console.error("usage: provenance repin <server>"); process.exit(1); }
+  withLock(() => {
+    if (!existsSync(paths.pins)) return console.log("Nothing pinned yet.");
+    const pins = JSON.parse(readFileSync(paths.pins, "utf8"));
+    delete pins[server];
+    writeFileSync(paths.pins, JSON.stringify(pins, null, 2));
+    console.log(`Cleared pins for ${server}; current tool definitions will be pinned on next start.`);
+  });
 }
 
 const commands: Record<string, () => void> = {
@@ -127,6 +142,7 @@ const commands: Record<string, () => void> = {
   log: cmdLog,
   approve: cmdApprove,
   verify: cmdVerify,
+  checkpoint: cmdCheckpoint,
   repin: cmdRepin,
   init: () => console.log(`Policy written to ${writeDefaultPolicy()}`),
   pubkey: () => process.stdout.write(publicKeyPem()),

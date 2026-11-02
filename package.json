@@ -1,10 +1,11 @@
 {
   "name": "agent-provenance",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Intent provenance for AI agents: blocks agent actions steered by untrusted content, with a signed, tamper-evident audit log.",
   "type": "module",
   "bin": {
-    "provenance": "dist/cli.js"
+    "provenance": "dist/cli.js",
+    "agent-provenance": "dist/cli.js"
   },
   "files": [
     "dist",
