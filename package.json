@@ -1,0 +1,46 @@
+{
+  "name": "agent-provenance",
+  "version": "0.1.1",
+  "description": "Intent provenance for AI agents: blocks agent actions steered by untrusted content, with a signed, tamper-evident audit log.",
+  "type": "module",
+  "bin": {
+    "provenance": "dist/cli.js",
+    "agent-provenance": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "demo": "npm run build && node demo/run-attack.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "security",
+    "prompt-injection",
+    "taint-tracking",
+    "provenance",
+    "audit"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AhilyaSanjaySarnaik/provenance.git"
+  },
+  "homepage": "https://github.com/AhilyaSanjaySarnaik/provenance#readme",
+  "bugs": {
+    "url": "https://github.com/AhilyaSanjaySarnaik/provenance/issues"
+  },
+  "author": "Ahilya Sanjay Sarnaik"
+}
